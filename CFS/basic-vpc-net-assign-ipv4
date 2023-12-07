@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  VpcCidrBlock:
+    Type: String
+    Default: "10.0.0.0/16"
+    Description: "CIDR block for the VPC. Default is 10.0.0.0/16."
+  
+  LatestAmazonLinuxAMI:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::ID>'
+    Default: '/aws/service/ami-linux-latest/amzn2-ami-hvm-x86_64-gp2' 
+    Description: "References the latest Amazon Linux AMI via SSM"
+
+  EC2InstanceType:
+    Type: String
+    Default: "t2.micro"
+    Description: "Instance type references t2.micro to take advantage of free tier limits"
+
+Resources:
+  MyVPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: !Ref VpcCidrBlock
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+
+  WebSubnet:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "10.0.0.0/26"
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: "Name"
+          Value: "web"
+
+  InternetGateway:
+    Type: "AWS::EC2::InternetGateway"
+    Properties: {}
+
+  AttachGateway:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  RouteTable:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref MyVPC
+
+  SubnetRouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref WebSubnet
+      RouteTableId: !Ref RouteTable
+
+  InternetRoute:
+    Type: "AWS::EC2::Route"
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Basic SecurityGroup providing SSH access from home network"
+      GroupName: "EC2SecurityGroup"
+      VpcId: !Ref MyVPC
+  
+  EC2SecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      DependsOn: EC2SecurityGroup
+      CidrIp: "122.151.79.98/32"
+      Description: "Ingress rule allowing SSH from home network"
+      FromPort: 22
+      ToPort: 22
+      IpProtocol: "tcp"
+      GroupId: !GetAtt EC2SecurityGroup.GroupId
+
+  EC2Instance:
+    Type: "AWS::EC2::Instance"
+    DependsOn: !Ref EC2SecurityGroupIngress
+    AvailabilityZone: "ap-southeast-2a"
+    ImageId: !Ref LatestAmazonLinuxAMI
+    InstanceType: !Ref EC2InstanceType
+    SubnetId: !Ref WebSubnet
+    KeyName: "apse2_keypair"
